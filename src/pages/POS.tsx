@@ -1,38 +1,58 @@
-// src/pages/POS.tsx
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { inventoryStore } from "../store";
+import type { Item } from "../types";
 
 export default function POSPage() {
-  const items = useMemo(() => inventoryStore.getItems() ?? [], []);
+  const [items, setItems] = useState<Item[]>(inventoryStore.getItems());
+  const [q, setQ] = useState("");
+  const [sizeFilter, setSizeFilter] = useState<string>("");
 
-  if (!items.length) {
-    return (
-      <div className="p-4">
-        <h1 className="text-xl font-semibold mb-4">Point of Sale</h1>
-        <div>No products yet. Go to Products to add some.</div>
-      </div>
-    );
-  }
+  useEffect(() => inventoryStore.subscribeItems(() => setItems(inventoryStore.getItems())), []);
+
+  const filtered = useMemo(() => {
+    const lower = q.trim().toLowerCase();
+    return items.filter(it => {
+      const byQ = !lower || it.name.toLowerCase().includes(lower) || (it.vendor||"").toLowerCase().includes(lower) || (it.tags||[]).some(t=>t.toLowerCase().includes(lower));
+      const bySize = !sizeFilter || (it.sizes||[]).some(s=>s.size===sizeFilter);
+      return byQ && bySize;
+    });
+  }, [items, q, sizeFilter]);
+
+  const allSizes = useMemo(()=>Array.from(new Set(items.flatMap(i=>i.sizes?.map(s=>s.size)||[]))),[items]);
 
   return (
     <div className="p-4">
-      <h1 className="text-xl font-semibold mb-4">Point of Sale</h1>
-      <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
-        {items.map((it) => (
-          <POSCard key={it.id} itemId={it.id} />
-        ))}
+      <h1 className="text-xl font-semibold mb-3">Point of Sale</h1>
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        <input
+          className="border rounded px-3 py-2"
+          placeholder="Search name, vendor, tag…"
+          value={q}
+          onChange={(e)=>setQ(e.target.value)}
+          style={{ minWidth: 240 }}
+        />
+        <select className="border rounded px-3 py-2" value={sizeFilter} onChange={e=>setSizeFilter(e.target.value)}>
+          <option value="">All sizes</option>
+          {allSizes.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>
+
+      {filtered.length === 0 && <div>No products match.</div>}
+
+      <div style={{ display:"grid", gap:16, gridTemplateColumns:"repeat(auto-fill, minmax(240px, 1fr))" }}>
+        {filtered.map(it => <POSCard key={it.id} item={it} />)}
       </div>
     </div>
   );
 }
 
-function POSCard({ itemId }: { itemId: string }) {
-  const item = (inventoryStore.getItems() || []).find((i) => i.id === itemId);
-  if (!item) return null;
-
+function POSCard({ item }: { item: Item }) {
   const [size, setSize] = useState<string>(item.sizes?.[0]?.size ?? "");
   const [adding, setAdding] = useState(false);
   const hasSizes = !!(item.sizes && item.sizes.length > 0);
+  const chosen = (item.sizes||[]).find(s=>s.size===size);
+  const low = typeof item.lowStockThreshold==="number" && chosen && chosen.stock<=item.lowStockThreshold!;
 
   const onAdd = () => {
     inventoryStore.addToCart({
@@ -44,54 +64,43 @@ function POSCard({ itemId }: { itemId: string }) {
       unitCost: item.cost,
       imageUrl: item.imageUrl,
     });
-    setAdding(true);
-    setTimeout(() => setAdding(false), 900);
+    setAdding(true); setTimeout(()=>setAdding(false), 850);
   };
 
   return (
-    <div style={{ border: "1px solid #e5e7eb", padding: 12, borderRadius: 12, display: "flex", flexDirection: "column" }}>
-      {item.imageUrl ? (
-        <img
-          src={item.imageUrl}
-          alt={item.name}
-          style={{ height: 160, objectFit: "cover", borderRadius: 10, marginBottom: 8 }}
-          onError={(e) => ((e.currentTarget.style.display = "none"))}
-        />
-      ) : (
-        <div style={{ height: 160, background: "#f3f4f6", borderRadius: 10, marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          No Image
-        </div>
-      )}
+    <div style={{ border:"1px solid #e5e7eb", borderRadius:16, overflow:"hidden", background:"#fff", boxShadow:"0 1px 6px rgba(0,0,0,.06)" }}>
+      <div style={{ position:"relative", height: 180, background:"#f3f4f6" }}>
+        {item.imageUrl && (
+          <img src={item.imageUrl} alt={item.name} style={{ width:"100%", height:"100%", objectFit:"cover" }}
+               onError={(e)=>{(e.currentTarget as HTMLImageElement).style.display="none";}}/>
+        )}
+        {low && (
+          <div style={{ position:"absolute", top:8, left:8, background:"#fef3c7", color:"#92400e", padding:"2px 8px", borderRadius:999, fontSize:12 }}>
+            Low • {chosen?.stock ?? 0} left
+          </div>
+        )}
+      </div>
 
-      <div style={{ fontWeight: 600 }}>{item.name}</div>
-      <div style={{ color: "#4b5563", marginBottom: 8 }}>${item.price.toFixed(2)}</div>
+      <div style={{ padding:12, display:"grid", gap:8 }}>
+        <div style={{ fontWeight:700 }}>{item.name}</div>
+        <div style={{ color:"#4b5563" }}>${item.price.toFixed(2)}</div>
 
-      {hasSizes && (
-        <select
-          value={size}
-          onChange={(e) => setSize(e.target.value)}
-          style={{ border: "1px solid #e5e7eb", borderRadius: 6, padding: "6px 8px", marginBottom: 8 }}
+        {hasSizes && (
+          <select value={size} onChange={(e)=>setSize(e.target.value)} className="border rounded px-2 py-1">
+            {item.sizes!.map(s => (
+              <option key={s.size} value={s.size}>{s.size}{Number.isFinite(s.stock) ? ` (${s.stock})` : ""}</option>
+            ))}
+          </select>
+        )}
+
+        <button
+          onClick={onAdd}
+          className="px-3 py-2 rounded"
+          style={{ background: adding ? "#16a34a" : "#111827", color:"#fff" }}
         >
-          {item.sizes!.map((s) => (
-            <option key={s.size} value={s.size}>
-              {s.size}{Number.isFinite(s.stock) ? ` (${s.stock} left)` : ""}
-            </option>
-          ))}
-        </select>
-      )}
-
-      <button
-        onClick={onAdd}
-        style={{
-          background: adding ? "#16a34a" : "#000",
-          color: "#fff",
-          padding: "8px 10px",
-          borderRadius: 8,
-          marginTop: "auto",
-        }}
-      >
-        {adding ? "✓ Added" : "Add to Cart"}
-      </button>
+          {adding ? "✓ Added" : "Add to Cart"}
+        </button>
+      </div>
     </div>
   );
 }
