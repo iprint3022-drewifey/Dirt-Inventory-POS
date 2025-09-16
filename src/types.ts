@@ -13,6 +13,8 @@ export type Item = {
   vendor?: string;
   imageUrl?: string;
   sizes?: SizeStock[];
+  tags?: string[];          // new: for filtering/collections
+  lowStockThreshold?: number; // new: when to show "Low"
 };
 
 export type LineItem = {
@@ -35,4 +37,9 @@ export type Transaction = {
   amountPaid?: number;
   change?: number;
   lines: LineItem[];
+  discount?: { type: "percent" | "fixed"; value: number } | null; // new
+};
+
+export type Settings = {
+  taxRate: number; // 0..1
 };
