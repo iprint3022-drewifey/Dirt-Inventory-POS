@@ -1,29 +1,52 @@
-// src/pages/Products.tsx
 import { useEffect, useState } from "react";
 import { inventoryStore } from "../store";
-import type { Item, SizeStock, VariantSize } from "../types";
+import type { Item, SizeStock } from "../types";
+
+// NOTE: keep your existing AddProductForm here if you already have uploads.
+// I'm focusing this snippet on the list/table with inline edits.
 
 export default function ProductsPage() {
   const [items, setItems] = useState<Item[]>(inventoryStore.getItems());
+  const [undoVisible, setUndoVisible] = useState(false);
+
   useEffect(() => inventoryStore.subscribeItems(() => setItems(inventoryStore.getItems())), []);
 
   const onDelete = (id: string) => {
-    if (confirm("Delete this product?")) inventoryStore.deleteItem(id);
+    inventoryStore.deleteItem(id);
+    setUndoVisible(true);
+    setTimeout(()=>setUndoVisible(false), 4000);
+  };
+
+  const onUndo = () => { inventoryStore.undoDelete(); setUndoVisible(false); };
+
+  const setField = (id:string, field: keyof Item, value:any) => inventoryStore.updateItem(id, { [field]: value } as Partial<Item>);
+  const adjustStock = (id:string, size:string, delta:number) => {
+    const it = items.find(x=>x.id===id); if (!it || !it.sizes) return;
+    const sizes = it.sizes.map(s => s.size===size ? { ...s, stock: Math.max(0, (s.stock||0) + delta) } : s);
+    inventoryStore.updateItem(id, { sizes });
   };
 
   return (
     <div className="p-4">
       <h1 className="text-xl font-semibold mb-4">Products / Inventory</h1>
 
-      <AddProductForm />
+      {/* Keep your AddProductForm above this line if you already have it */}
+      {/* <AddProductForm /> */}
 
-      <table className="min-w-full text-sm border mt-6">
+      {undoVisible && (
+        <div className="mb-3 px-3 py-2 rounded border" style={{ background:"#fffbeb", borderColor:"#fde68a", color:"#92400e" }}>
+          Product deleted. <button className="underline ml-2" onClick={onUndo}>Undo</button>
+        </div>
+      )}
+
+      <table className="min-w-full text-sm border mt-2">
         <thead>
-          <tr className="text-left border-b">
+          <tr className="text-left border-b bg-gray-50">
             <th className="py-2 px-3">Product</th>
             <th className="py-2 px-3">Price</th>
             <th className="py-2 px-3">Our Cost</th>
             <th className="py-2 px-3">Vendor</th>
+            <th className="py-2 px-3">Tags</th>
             <th className="py-2 px-3">Sizes</th>
             <th className="py-2 px-3">Actions</th>
           </tr>
@@ -33,112 +56,58 @@ export default function ProductsPage() {
             <tr key={it.id} className="border-b align-top">
               <td className="py-2 px-3">
                 <div className="flex items-center gap-2">
-                  {it.imageUrl && <img src={it.imageUrl} className="w-10 h-10 object-cover rounded" alt="" />}
+                  {it.imageUrl && <img src={it.imageUrl} className="w-10 h-10 object-cover rounded" alt=""/>}
                   <div className="font-medium">{it.name}</div>
                 </div>
               </td>
-              <td className="py-2 px-3">${it.price.toFixed(2)}</td>
-              <td className="py-2 px-3">${it.cost.toFixed(2)}</td>
-              <td className="py-2 px-3">{it.vendor ?? "—"}</td>
+
               <td className="py-2 px-3">
-                {it.sizes?.length ? it.sizes.map(s => `${s.size}(${s.stock})`).join(", ") : "—"}
+                <input type="number" step="0.01" className="border rounded px-2 py-1 w-28"
+                  value={it.price} onChange={e=>setField(it.id,"price", Number(e.target.value)||0)} />
               </td>
+
               <td className="py-2 px-3">
-                <button className="bg-red-500 text-white px-2 py-1 rounded" onClick={() => onDelete(it.id)}>
-                  Delete
-                </button>
+                <input type="number" step="0.01" className="border rounded px-2 py-1 w-28"
+                  value={it.cost} onChange={e=>setField(it.id,"cost", Number(e.target.value)||0)} />
+              </td>
+
+              <td className="py-2 px-3">
+                <input className="border rounded px-2 py-1 w-36"
+                  value={it.vendor||""} onChange={e=>setField(it.id,"vendor", e.target.value)} placeholder="Vendor" />
+              </td>
+
+              <td className="py-2 px-3">
+                <input className="border rounded px-2 py-1 w-44"
+                  value={(it.tags||[]).join(", ")}
+                  onChange={e=>setField(it.id,"tags", e.target.value.split(",").map(t=>t.trim()).filter(Boolean))} placeholder="comma,separated,tags" />
+              </td>
+
+              <td className="py-2 px-3">
+                {(it.sizes||[]).length===0 && <div className="text-gray-500">—</div>}
+                <div className="grid gap-1">
+                  {(it.sizes||[]).map(s=>(
+                    <div key={s.size} className="flex items-center gap-2">
+                      <div className="w-16">{s.size}</div>
+                      <div className="w-10 text-right">{s.stock}</div>
+                      <div className="flex gap-1">
+                        <button className="border rounded px-2" onClick={()=>adjustStock(it.id, s.size, +10)}>+10</button>
+                        <button className="border rounded px-2" onClick={()=>adjustStock(it.id, s.size, +1)}>+1</button>
+                        <button className="border rounded px-2" onClick={()=>adjustStock(it.id, s.size, -1)}>-1</button>
+                        <button className="border rounded px-2" onClick={()=>adjustStock(it.id, s.size, -10)}>-10</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </td>
+
+              <td className="py-2 px-3">
+                <button className="bg-red-500 text-white px-2 py-1 rounded" onClick={()=>onDelete(it.id)}>Delete</button>
               </td>
             </tr>
           ))}
-          {items.length === 0 && (
-            <tr><td colSpan={6} className="text-center py-6 text-gray-500">No products yet</td></tr>
-          )}
+          {items.length===0 && <tr><td colSpan={7} className="text-center py-6 text-gray-500">No products yet</td></tr>}
         </tbody>
       </table>
-    </div>
-  );
-}
-
-function AddProductForm() {
-  const [name, setName] = useState("");
-  const [price, setPrice] = useState<number>(0);
-  const [cost, setCost] = useState<number>(0);
-  const [vendor, setVendor] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
-  const [sizes, setSizes] = useState<SizeStock[]>([]);
-
-  const addSize = () => setSizes(prev => [...prev, { size: "M", stock: 0 }]);
-  const updateSize = (i: number, field: "size" | "stock", val: string) => {
-    setSizes(prev => prev.map((s, idx) => idx === i ? { ...s, [field]: field === "stock" ? Number(val) || 0 : (val as VariantSize) } : s));
-  };
-  const removeSize = (i: number) => setSizes(prev => prev.filter((_, idx) => idx !== i));
-  const clear = () => { setName(""); setPrice(0); setCost(0); setVendor(""); setImageUrl(""); setSizes([]); };
-
-  const save = () => {
-    if (!name.trim()) { alert("Name is required"); return; }
-    inventoryStore.addItem({
-      name,
-      price: Number(price) || 0,
-      cost: Number(cost) || 0,
-      vendor: vendor || undefined,
-      imageUrl: imageUrl || undefined,
-      sizes
-    });
-    clear();
-  };
-
-  return (
-    <div className="border rounded p-4 bg-white">
-      <h2 className="font-semibold mb-3">Add Product</h2>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1">
-          <span>Name *</span>
-          <input className="border rounded px-2 py-1" value={name} onChange={e=>setName(e.target.value)} />
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span>Image URL</span>
-          <input className="border rounded px-2 py-1" placeholder="https://…" value={imageUrl} onChange={e=>setImageUrl(e.target.value)} />
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span>Price (customer pays)</span>
-          <input type="number" step="0.01" className="border rounded px-2 py-1" value={price} onChange={e=>setPrice(Number(e.target.value)||0)} />
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span>Our Cost</span>
-          <input type="number" step="0.01" className="border rounded px-2 py-1" value={cost} onChange={e=>setCost(Number(e.target.value)||0)} />
-        </label>
-
-        <label className="flex flex-col gap-1 sm:col-span-2">
-          <span>Vendor</span>
-          <input className="border rounded px-2 py-1" value={vendor} onChange={e=>setVendor(e.target.value)} placeholder="e.g., SanMar" />
-        </label>
-
-        <div className="sm:col-span-2">
-          <div className="flex items-center justify-between mb-2">
-            <strong>Sizes (optional)</strong>
-            <button className="px-2 py-1 rounded border" type="button" onClick={addSize}>+ Add Size</button>
-          </div>
-          {sizes.length === 0 && <div className="text-sm text-gray-500 mb-2">No sizes added.</div>}
-          <div className="grid gap-2">
-            {sizes.map((s, i) => (
-              <div key={i} className="grid grid-cols-[1fr_120px_80px] gap-2 items-center">
-                <input className="border rounded px-2 py-1" value={s.size} onChange={e=>updateSize(i, "size", e.target.value)} placeholder="S / M / L / XL…" />
-                <input type="number" min={0} className="border rounded px-2 py-1" value={s.stock} onChange={e=>updateSize(i, "stock", e.target.value)} placeholder="Stock" />
-                <button className="border rounded px-2 py-1" type="button" onClick={()=>removeSize(i)}>Remove</button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="sm:col-span-2 flex gap-2 mt-1">
-          <button className="bg-black text-white px-3 py-2 rounded" type="button" onClick={save}>Save Product</button>
-          <button className="border px-3 py-2 rounded" type="button" onClick={clear}>Clear</button>
-        </div>
-      </div>
     </div>
   );
 }
